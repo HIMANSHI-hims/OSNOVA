@@ -1,0 +1,6 @@
+
+chromadb
+sentence-transformers
+pypdf
+requests
+python-dotenv

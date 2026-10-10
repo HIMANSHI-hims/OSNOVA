@@ -622,7 +622,7 @@ function renderSources(containerEl, sources) {
   });
 
   card.innerHTML = `
-    <details open>
+    <details>
       <summary class="sources-header">
         <span>📚 Sources Used from Your Notes (${sources.length})</span>
       </summary>
