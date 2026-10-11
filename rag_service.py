@@ -27,7 +27,7 @@ import chromadb
 import requests
 from dotenv import load_dotenv
 from pypdf import PdfReader
-from sentence_transformers import SentenceTransformer
+
 
 # ---------- Configuration ----------
 
@@ -41,7 +41,6 @@ MODEL = os.environ.get(
 
 API_KEY = os.environ.get("GEMINI_API_KEY")
 
-# Google's OpenAI-compatible Chat Completions endpoint
 API_URL = (
     "https://generativelanguage.googleapis.com/"
     "v1beta/openai/chat/completions"
@@ -82,8 +81,21 @@ Rules:
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(DB_DIR, exist_ok=True)
 
-embedder = SentenceTransformer(EMBED_MODEL)
 db = chromadb.PersistentClient(path=DB_DIR)
+
+_embedder = None
+
+
+def get_embedder():
+    """Load the embedding model only when first needed."""
+    global _embedder
+
+    if _embedder is None:
+        from sentence_transformers import SentenceTransformer
+
+        _embedder = SentenceTransformer(EMBED_MODEL)
+
+    return _embedder
 
 
 # ---------- Text Processing ----------
@@ -150,7 +162,9 @@ def ingest() -> Dict:
                     for page_no, page in enumerate(reader.pages, start=1)
                 ]
             else:
-                with open(path, encoding="utf-8", errors="ignore") as file:
+                with open(
+                    path, encoding="utf-8", errors="ignore"
+                ) as file:
                     pages = [(1, file.read())]
 
         except Exception as exc:
@@ -171,7 +185,7 @@ def ingest() -> Dict:
                 ids.append(f"{name}-p{page_no}-c{chunk_no}")
 
         if docs:
-            vectors = embedder.encode(
+            vectors = get_embedder().encode(
                 docs,
                 show_progress_bar=False,
             ).tolist()
@@ -224,7 +238,7 @@ def retrieve(
         if count == 0:
             return []
 
-        q_vector = embedder.encode([question]).tolist()
+        q_vector = get_embedder().encode([question]).tolist()
 
         result = collection.query(
             query_embeddings=q_vector,
@@ -273,7 +287,9 @@ def build_sources(hits: List[Tuple[str, Dict]]) -> List[Dict]:
 
 # ---------- Gemini Streaming ----------
 
-def strip_think(tokens: Iterable[str]) -> Generator[str, None, None]:
+def strip_think(
+    tokens: Iterable[str],
+) -> Generator[str, None, None]:
     """Remove any explicit <think>...</think> blocks from generated text."""
 
     open_tag, close_tag = "<think>", "</think>"
@@ -325,8 +341,6 @@ def _raw_stream(
 ) -> Generator[str, None, None]:
     """Stream generated text from the Gemini API."""
 
-    # This project is configured for one Gemini model. Ignore a stale
-    # model name supplied by the old frontend/OpenRouter configuration.
     chosen_model = MODEL
 
     if not API_KEY:
@@ -393,7 +407,10 @@ def _raw_stream(
 
                 if event.get("error"):
                     print(f"Gemini API error: {event['error']}")
-                    yield "Gemini API returned an error. Check backend logs."
+                    yield (
+                        "Gemini API returned an error. "
+                        "Check backend logs."
+                    )
                     return
 
                 choices = event.get("choices", [])
@@ -416,7 +433,10 @@ def _raw_stream(
 
     except requests.RequestException as exc:
         print(f"Gemini connection error: {exc}")
-        yield "Gemini connection error. Check your network and API endpoint."
+        yield (
+            "Gemini connection error. "
+            "Check your network and API endpoint."
+        )
 
     except Exception as exc:
         print(f"Unexpected model error: {exc}")
@@ -428,7 +448,7 @@ def stream_qwen(
     user: str,
     model: Optional[str] = None,
 ) -> Generator[str, None, None]:
-    """Keep the original function name for compatibility with existing code."""
+    """Keep the original function name for compatibility."""
 
     started = False
 
@@ -475,7 +495,9 @@ def get_status() -> Dict:
     for extension in ("*.pdf", "*.txt", "*.md"):
         files.extend(
             os.path.basename(path)
-            for path in glob.glob(os.path.join(DATA_DIR, extension))
+            for path in glob.glob(
+                os.path.join(DATA_DIR, extension)
+            )
         )
 
     try:
