@@ -396,7 +396,7 @@ async function handleSubmit() {
     const decoder = new TextDecoder('utf-8');
     let buffer = '';
 
-    while (true) {
+    streamLoop:while (true) {
       const { value, done } = await reader.read();
       if (done) break;
 
@@ -418,7 +418,8 @@ async function handleSubmit() {
               renderMarkdown(bubbleEl, fullResponse, true);
               scrollToBottom();
             } else if (eventData.type === 'done') {
-              // Completed
+              await reader.cancel();
+              break streamLoop;
             } else if (eventData.type === 'error') {
               fullResponse += `\n\n*Error: ${eventData.error}*`;
               renderMarkdown(bubbleEl, fullResponse, false);
@@ -868,6 +869,14 @@ function escapeHtml(str) {
       "'": '&#39;'
     }[m];
   });
+}
+
+function renderMath(element) {
+  if (window.MathJax && window.MathJax.typesetPromise) {
+    window.MathJax.typesetPromise([element]).catch((error) => {
+      console.error("Math rendering error:", error);
+    });
+  }
 }
 
 // Run on load

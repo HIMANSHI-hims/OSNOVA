@@ -1,5 +1,6 @@
+
 """
-OSTutorLLM - RAG pipeline using OpenRouter Qwen + ChromaDB
+OSTutorLLM - RAG pipeline using Gemini API + ChromaDB
 
 Setup:
     python -m pip install chromadb sentence-transformers pypdf requests python-dotenv
@@ -34,11 +35,17 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 MODEL = os.environ.get(
-    "OPENROUTER_MODEL",
-    "qwen/qwen3-4b:free"
+    "GEMINI_MODEL",
+    "gemini-3.5-flash-lite"
 )
-API_KEY = os.environ.get("OPENROUTER_API_KEY")
-API_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+API_KEY = os.environ.get("GEMINI_API_KEY")
+
+# Google's OpenAI-compatible Chat Completions endpoint
+API_URL = (
+    "https://generativelanguage.googleapis.com/"
+    "v1beta/openai/chat/completions"
+)
 
 EMBED_MODEL = "BAAI/bge-small-en-v1.5"
 DATA_DIR = os.path.join(BASE_DIR, "data")
@@ -48,24 +55,27 @@ CHUNK_SIZE = 800
 OVERLAP = 150
 TOP_K = 4
 
-# Chat answers are direct. Set SHOW_SOURCES=true in .env to send the source
-# list to the web interface again (e.g. for a "Show sources" toggle).
-SHOW_SOURCES = os.environ.get("SHOW_SOURCES", "false").strip().lower() == "true"
-
-# Turn off Qwen3's "thinking" so the user only sees the final answer.
-DISABLE_THINKING = True
-
-# NOTE: every line ends with a space so the joined string reads correctly.
-SYSTEM_PROMPT = (
-    "You are OSTutor, a friendly Operating Systems tutor. "
-    "Answer the question directly, in a clear and simple way, like a teacher "
-    "explaining to a student. Start with the answer immediately. "
-    "Never say \"according to the context\", \"the notes say\", \"page\", "
-    "\"source\" or \"document\", and never describe your reasoning. "
-    "Use the material given to you as your own knowledge. "
-    "If it does not contain the answer, reply only: "
-    "\"This is not covered in the course material I have.\""
+SHOW_SOURCES = (
+    os.environ.get("SHOW_SOURCES", "false").strip().lower() == "true"
 )
+
+
+SYSTEM_PROMPT = """
+You are OSTutor, an intelligent Operating Systems tutor.
+
+Use the retrieved study notes as your primary source whenever they are relevant.
+
+Rules:
+1. If the notes contain relevant information, use them to form the answer.
+2. You may supplement the notes with general knowledge, examples, analogies, and additional context.
+3. If the notes only partially answer the question, explain what they cover and supplement missing details using general knowledge.
+4. If the notes are irrelevant or do not contain the answer, answer using your general knowledge instead of refusing.
+5. Never claim that information came from the notes unless it is supported by the retrieved context.
+6. Distinguish information from the notes and additional general knowledge when appropriate.
+7. Acknowledge uncertainty when necessary.
+8. Keep answers clear, accurate, and suitable for a university student.
+"""
+
 
 # ---------- Initialization ----------
 
@@ -119,7 +129,6 @@ def ingest() -> Dict:
             "indexed_files": [],
         }
 
-    # Preserve the existing collection if there are no input files.
     try:
         db.delete_collection("os_notes")
     except Exception:
@@ -236,11 +245,7 @@ def retrieve(
 
 
 def format_context(hits: List[Tuple[str, Dict]]) -> str:
-    """Format retrieved chunks for the model prompt.
-
-    Only the chunk text is sent. File names and page numbers are NOT put in
-    the prompt, otherwise the model repeats them ("page 2 of the notes...").
-    """
+    """Format retrieved chunks for the model prompt."""
 
     if not hits:
         return "No specific course notes retrieved."
@@ -249,11 +254,7 @@ def format_context(hits: List[Tuple[str, Dict]]) -> str:
 
 
 def build_sources(hits: List[Tuple[str, Dict]]) -> List[Dict]:
-    """Build source information for the web interface.
-
-    Returns an empty list unless SHOW_SOURCES=true, so the chat shows only
-    the answer by default.
-    """
+    """Build optional source information for the web interface."""
 
     if not SHOW_SOURCES:
         return []
@@ -270,14 +271,10 @@ def build_sources(hits: List[Tuple[str, Dict]]) -> List[Dict]:
     ]
 
 
-# ---------- OpenRouter Streaming ----------
+# ---------- Gemini Streaming ----------
 
 def strip_think(tokens: Iterable[str]) -> Generator[str, None, None]:
-    """Remove <think>...</think> blocks from a stream of text pieces.
-
-    Safety net: if the model still writes its reasoning inside the answer,
-    it is dropped before reaching the user.
-    """
+    """Remove any explicit <think>...</think> blocks from generated text."""
 
     open_tag, close_tag = "<think>", "</think>"
     buffer = ""
@@ -292,7 +289,6 @@ def strip_think(tokens: Iterable[str]) -> Generator[str, None, None]:
                 end = buffer.find(close_tag)
 
                 if end == -1:
-                    # keep a possible partial closing tag, drop the rest
                     buffer = buffer[-(len(close_tag) - 1):]
                     break
 
@@ -303,7 +299,6 @@ def strip_think(tokens: Iterable[str]) -> Generator[str, None, None]:
                 start = buffer.find(open_tag)
 
                 if start == -1:
-                    # hold back a possible partial opening tag
                     keep = len(open_tag) - 1
 
                     if len(buffer) > keep:
@@ -328,17 +323,15 @@ def _raw_stream(
     user: str,
     model: Optional[str] = None,
 ) -> Generator[str, None, None]:
-    """Stream raw generated text from the hosted Qwen model."""
+    """Stream generated text from the Gemini API."""
 
-    chosen_model = model or MODEL
+    # This project is configured for one Gemini model. Ignore a stale
+    # model name supplied by the old frontend/OpenRouter configuration.
+    chosen_model = MODEL
 
     if not API_KEY:
-        yield "Error: OPENROUTER_API_KEY is not configured."
+        yield "Error: GEMINI_API_KEY is not configured."
         return
-
-    # Qwen3 soft switch: asks the model not to think before answering.
-    if DISABLE_THINKING and "qwen3" in chosen_model.lower():
-        user = user.rstrip() + " /no_think"
 
     headers = {
         "Authorization": f"Bearer {API_KEY}",
@@ -356,10 +349,6 @@ def _raw_stream(
         "stream": True,
     }
 
-    if DISABLE_THINKING:
-        # OpenRouter's switch for models that support reasoning.
-        payload["reasoning"] = {"enabled": False}
-
     try:
         with requests.post(
             API_URL,
@@ -371,9 +360,14 @@ def _raw_stream(
 
             if not response.ok:
                 details = response.text[:1000]
-                yield (
-                    f"OpenRouter request failed "
+                print(
+                    f"Gemini request failed "
                     f"(HTTP {response.status_code}): {details}"
+                )
+                yield (
+                    f"Gemini request failed "
+                    f"(HTTP {response.status_code}). "
+                    "Check the backend logs for details."
                 )
                 return
 
@@ -398,7 +392,8 @@ def _raw_stream(
                     continue
 
                 if event.get("error"):
-                    yield f"OpenRouter API error: {event['error']}"
+                    print(f"Gemini API error: {event['error']}")
+                    yield "Gemini API returned an error. Check backend logs."
                     return
 
                 choices = event.get("choices", [])
@@ -409,8 +404,6 @@ def _raw_stream(
                 delta = choices[0].get("delta", {})
                 token = delta.get("content")
 
-                # Only "content" is used; the separate "reasoning" field
-                # (if a provider sends one) is ignored on purpose.
                 if isinstance(token, str) and token:
                     yield token
 
@@ -422,10 +415,12 @@ def _raw_stream(
                                 yield text
 
     except requests.RequestException as exc:
-        yield f"OpenRouter connection error: {exc}"
+        print(f"Gemini connection error: {exc}")
+        yield "Gemini connection error. Check your network and API endpoint."
 
     except Exception as exc:
-        yield f"Unexpected model error: {exc}"
+        print(f"Unexpected model error: {exc}")
+        yield "Unexpected model error. Check the backend logs."
 
 
 def stream_qwen(
@@ -433,7 +428,7 @@ def stream_qwen(
     user: str,
     model: Optional[str] = None,
 ) -> Generator[str, None, None]:
-    """Stream the final answer only (thinking removed, no leading blanks)."""
+    """Keep the original function name for compatibility with existing code."""
 
     started = False
 
@@ -480,9 +475,7 @@ def get_status() -> Dict:
     for extension in ("*.pdf", "*.txt", "*.md"):
         files.extend(
             os.path.basename(path)
-            for path in glob.glob(
-                os.path.join(DATA_DIR, extension)
-            )
+            for path in glob.glob(os.path.join(DATA_DIR, extension))
         )
 
     try:
@@ -580,7 +573,6 @@ def rag_answer(question: str):
     print("\n--- ANSWER (with your notes) ---")
     ask_qwen(SYSTEM_PROMPT, prompt)
 
-    # The command line still lists sources: handy for testing and screenshots.
     print("\n--- SOURCES USED ---")
 
     if not hits:
@@ -594,7 +586,7 @@ def rag_answer(question: str):
 
 
 def plain_answer(question: str):
-    print("\n--- ANSWER (plain Qwen, no notes) ---")
+    print("\n--- ANSWER (plain Gemini, no notes) ---")
 
     ask_qwen(
         "You are a helpful Operating Systems tutor.",
