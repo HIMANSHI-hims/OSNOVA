@@ -207,7 +207,6 @@ function handleTextareaKeydown(e) {
   if (e.isComposing || e.keyCode === 229) {
     return;
   }
-
   // Enter without shift -> submit
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
@@ -299,7 +298,6 @@ async function checkStatus() {
     } else {
       elements.modalFileList.innerHTML = `<li class="empty-list">No files in ./data/. Put your OS PDFs there!</li>`;
     }
-
   } catch (err) {
     elements.statusDot.className = 'status-indicator warning';
     elements.statusTitle.textContent = 'Server Offline';
@@ -316,7 +314,6 @@ async function triggerIngestion() {
   try {
     const res = await fetch('/api/ingest', { method: 'POST' });
     const data = await res.json();
-
     elements.ingestResultBox.classList.remove('hidden');
     if (data.success) {
       elements.ingestResultBox.className = 'ingest-result success';
@@ -369,7 +366,6 @@ async function handleSubmit() {
 
   // Prepare Assistant message container in DOM
   const { bubbleEl, sourcesEl, messageId } = createAssistantMessageInDOM();
-
   setGeneratingState(true);
   state.activeAbortController = new AbortController();
 
@@ -396,10 +392,9 @@ async function handleSubmit() {
     const decoder = new TextDecoder('utf-8');
     let buffer = '';
 
-    streamLoop:while (true) {
+    streamLoop: while (true) {
       const { value, done } = await reader.read();
       if (done) break;
-
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
       buffer = lines.pop() || ''; // Keep partial line in buffer
@@ -440,7 +435,6 @@ async function handleSubmit() {
       mode: state.activeMode
     });
     saveSessions();
-
   } catch (err) {
     if (err.name === 'AbortError') {
       fullResponse += '\n\n*(Generation stopped by user)*';
@@ -483,12 +477,14 @@ async function handleCompareSubmit(query) {
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buf = '';
+
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
         buf += decoder.decode(value, { stream: true });
         const lines = buf.split('\n');
         buf = lines.pop() || '';
+
         for (const line of lines) {
           if (line.trim().startsWith('data: ')) {
             const data = JSON.parse(line.trim().slice(6));
@@ -519,12 +515,14 @@ async function handleCompareSubmit(query) {
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buf = '';
+
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
         buf += decoder.decode(value, { stream: true });
         const lines = buf.split('\n');
         buf = lines.pop() || '';
+
         for (const line of lines) {
           if (line.trim().startsWith('data: ')) {
             const data = JSON.parse(line.trim().slice(6));
@@ -575,7 +573,6 @@ function renderMarkdown(targetEl, text, isStreaming) {
 
     const wrapper = document.createElement('div');
     wrapper.className = 'code-block-wrapper';
-
     const header = document.createElement('div');
     header.className = 'code-header';
     header.innerHTML = `
@@ -608,10 +605,8 @@ function renderSources(containerEl, sources) {
     containerEl.innerHTML = '';
     return;
   }
-
   const card = document.createElement('div');
   card.className = 'sources-card';
-
   let listHtml = '';
   sources.forEach((s, idx) => {
     listHtml += `
@@ -630,7 +625,6 @@ function renderSources(containerEl, sources) {
       <div class="sources-list">${listHtml}</div>
     </details>
   `;
-
   containerEl.innerHTML = '';
   containerEl.appendChild(card);
 }

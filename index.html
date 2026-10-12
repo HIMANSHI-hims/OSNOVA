@@ -3,38 +3,27 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>OSTutor - Operating Systems AI Tutor (Qwen 4B + RAG)</title>
-  
-  <!-- Fonts -->
+  <title>OSNOVA - Operating Systems AI Tutor (Qwen3 4B + RAG)</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  
-  <!-- Highlight.js for C, Assembly, Bash, Python syntax -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Montserrat:wght@700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css" id="hljs-theme">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/c.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/bash.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/x86asm.min.js"></script>
-
-  <!-- Marked.js for Markdown rendering -->
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-
-  <!-- Custom Styles -->
   <link rel="stylesheet" href="style.css" />
 </head>
 <body data-theme="dark">
+  <canvas id="bgCanvas"></canvas>
   <div class="app-layout">
-    
-    <!-- Sidebar -->
+
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-header">
         <div class="brand">
           <div class="brand-icon">💻</div>
-          <div class="brand-text">
-            <h2>OSTutor</h2>
-            <span class="brand-badge">Qwen:4B RAG</span>
-          </div>
+          <div class="brand-text"><h2>OSNOVA</h2><span class="brand-badge">Qwen3:4B RAG</span></div>
         </div>
         <button class="btn btn-icon sidebar-close-btn" id="sidebarToggleBtn" aria-label="Toggle Sidebar">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
@@ -46,43 +35,26 @@
         <span>New Session</span>
       </button>
 
-      <!-- OS Topic Quick Starters -->
       <div class="sidebar-section">
         <h4 class="section-title">OS Core Modules</h4>
         <div class="quick-topics-list">
-          <button class="topic-chip" data-prompt="Explain CPU Scheduling with Round Robin vs SJF with a Gantt chart example.">
-            🔄 CPU Scheduling
-          </button>
-          <button class="topic-chip" data-prompt="What are the 4 Coffman conditions for a Deadlock and how can Banker's Algorithm prevent it?">
-            🔒 Deadlocks & Mutex
-          </button>
-          <button class="topic-chip" data-prompt="Explain Virtual Memory, Paging, and the LRU page replacement algorithm step by step.">
-            🧠 Memory & Paging
-          </button>
-          <button class="topic-chip" data-prompt="Explain how fork() and exec() system calls work in C with a small code snippet.">
-            ⚙️ System Calls (fork/exec)
-          </button>
-          <button class="topic-chip" data-prompt="Explain Peterson's Algorithm and how Semaphores solve the Critical Section problem.">
-            🚦 Semaphores & Sync
-          </button>
-          <button class="topic-chip" data-prompt="What is an Inode in Unix file systems and how does hard link differ from soft link?">
-            📁 File Systems & Inodes
-          </button>
+          <button class="topic-chip" data-prompt="Explain CPU Scheduling with Round Robin vs SJF with a Gantt chart example.">🔄 CPU Scheduling</button>
+          <button class="topic-chip" data-prompt="What are the 4 Coffman conditions for a Deadlock and how can Banker's Algorithm prevent it?">🔒 Deadlocks & Mutex</button>
+          <button class="topic-chip" data-prompt="Explain Virtual Memory, Paging, and the LRU page replacement algorithm step by step.">🧠 Memory & Paging</button>
+          <button class="topic-chip" data-prompt="Explain how fork() and exec() system calls work in C with a small code snippet.">⚙️ System Calls (fork/exec)</button>
+          <button class="topic-chip" data-prompt="Explain Peterson's Algorithm and how Semaphores solve the Critical Section problem.">🚦 Semaphores & Sync</button>
+          <button class="topic-chip" data-prompt="What is an Inode in Unix file systems and how does hard link differ from soft link?">📁 File Systems & Inodes</button>
         </div>
       </div>
 
-      <!-- Chat History -->
       <div class="sidebar-section history-section">
         <div class="section-header-row">
           <h4 class="section-title">Saved Chats</h4>
           <button class="btn-text" id="clearHistoryBtn">Clear</button>
         </div>
-        <div class="history-list" id="historyList">
-          <!-- Populated by JS -->
-        </div>
+        <div class="history-list" id="historyList"></div>
       </div>
 
-      <!-- Footer Info -->
       <div class="sidebar-footer">
         <div class="vector-status" id="vectorStatusCard">
           <div class="status-indicator online" id="statusDot"></div>
@@ -94,43 +66,22 @@
       </div>
     </aside>
 
-    <!-- Main Content Area -->
     <main class="main-content">
-      
-      <!-- Top Navigation Bar -->
       <header class="topbar">
         <div class="topbar-left">
           <button class="btn btn-icon sidebar-open-btn" id="sidebarOpenBtn" aria-label="Open Sidebar">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
           </button>
-
-          <!-- Mode Selector Tabs -->
           <div class="mode-selector" role="tablist">
-            <button class="mode-pill active" data-mode="rag" role="tab" title="Answers using your uploaded OS notes with citations">
-              <span class="mode-icon">🎓</span>
-              <span>Ask Tutor (RAG)</span>
-            </button>
-            <button class="mode-pill" data-mode="plain" role="tab" title="Direct Qwen answer without course notes">
-              <span class="mode-icon">🤖</span>
-              <span>Plain Qwen</span>
-            </button>
-            <button class="mode-pill" data-mode="compare" role="tab" title="Compare Plain Qwen vs RAG Tutor side-by-side">
-              <span class="mode-icon">⚖️</span>
-              <span>Compare</span>
-            </button>
-            <button class="mode-pill" data-mode="mcq" role="tab" title="Generate 5 practice MCQs from your notes">
-              <span class="mode-icon">📝</span>
-              <span>MCQ Quiz</span>
-            </button>
-            <button class="mode-pill" data-mode="viva" role="tab" title="Generate 5 viva/oral questions ordered easy to hard">
-              <span class="mode-icon">🎯</span>
-              <span>Viva Prep</span>
-            </button>
+            <button class="mode-pill active" data-mode="rag" role="tab" title="Answers using your uploaded OS notes with citations"><span class="mode-icon">🎓</span><span>Ask Tutor (RAG)</span></button>
+            <button class="mode-pill" data-mode="plain" role="tab" title="Direct Qwen answer without course notes"><span class="mode-icon">🤖</span><span>Plain Qwen</span></button>
+            <button class="mode-pill" data-mode="compare" role="tab" title="Compare Plain Qwen vs RAG Tutor side-by-side"><span class="mode-icon">⚖️</span><span>Compare</span></button>
+            <button class="mode-pill" data-mode="mcq" role="tab" title="Generate 5 practice MCQs from your notes"><span class="mode-icon">📝</span><span>MCQ Quiz</span></button>
+            <button class="mode-pill" data-mode="viva" role="tab" title="Generate 5 viva/oral questions ordered easy to hard"><span class="mode-icon">🎯</span><span>Viva Prep</span></button>
           </div>
         </div>
 
         <div class="topbar-right">
-          <!-- Model Picker -->
           <div class="model-picker-wrapper">
             <label for="modelSelect">Model:</label>
             <select id="modelSelect" class="form-select">
@@ -138,15 +89,11 @@
               <option value="qwen:4b">qwen:4b</option>
             </select>
           </div>
-
-          <!-- Notes Manager Button -->
           <button class="btn btn-secondary" id="notesManagerBtn" title="Manage OS Notes & Ingestion">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
             <span class="hide-mobile">Notes</span>
             <span class="chunk-badge" id="topChunkBadge">0 chunks</span>
           </button>
-
-          <!-- Theme Toggle -->
           <button class="btn btn-icon" id="themeToggleBtn" aria-label="Toggle Theme">
             <svg id="moonIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
             <svg id="sunIcon" class="hidden" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
@@ -154,164 +101,83 @@
         </div>
       </header>
 
-      <!-- Active Mode Banner -->
       <div class="mode-banner" id="modeBanner">
         <span class="banner-badge" id="bannerBadge">🎓 Ask Tutor (RAG)</span>
         <span class="banner-desc" id="bannerDesc">Answering strictly from your notes in ./data with cited pages</span>
       </div>
 
-      <!-- Chat Stream Container -->
       <div class="chat-viewport" id="chatViewport">
-        
-        <!-- Welcome Screen (Shown when no messages) -->
         <div class="welcome-screen" id="welcomeScreen">
           <div class="welcome-hero">
             <div class="welcome-logo">🐧</div>
-            <h1>B.Tech Operating Systems Tutor</h1>
-            <p>Powered by <strong>Qwen (4B)</strong> + <strong>ChromaDB RAG</strong>. Ask anything from your syllabus, simulate scheduling algorithms, generate MCQs, or test viva questions.</p>
+            <h1 aria-label="OSNOVA"><span style="--i:0">O</span><span style="--i:1">S</span><span style="--i:2">N</span><span style="--i:3">O</span><span style="--i:4">V</span><span style="--i:5">A</span></h1>
+            <div class="hero-line"></div>
+            <div class="hero-sub">Powered by Qwen3 4B</div>
+            <p class="hero-desc" style="margin-top:14px">Your B.Tech Operating Systems tutor, grounded in your notes with <strong>ChromaDB RAG</strong>. Ask your syllabus, simulate scheduling, generate MCQs or practise viva.</p>
           </div>
-
           <div class="starter-cards-grid">
-            <div class="starter-card" data-prompt="What is a deadlock and what are its four necessary conditions?">
-              <div class="starter-icon">🔒</div>
-              <div class="starter-info">
-                <h3>Deadlock Conditions</h3>
-                <p>Mutual exclusion, hold & wait, no preemption, circular wait.</p>
-              </div>
-            </div>
-            <div class="starter-card" data-prompt="Explain Round Robin scheduling algorithm with a simple example and average waiting time calculation.">
-              <div class="starter-icon">⏱️</div>
-              <div class="starter-info">
-                <h3>Round Robin Scheduling</h3>
-                <p>Time quantum, ready queue, Gantt chart & turnaround time.</p>
-              </div>
-            </div>
-            <div class="starter-card" data-prompt="What is Virtual Memory? Explain Paging, Page Faults, and how TLB speeds up address translation.">
-              <div class="starter-icon">🧠</div>
-              <div class="starter-info">
-                <h3>Paging & Virtual Memory</h3>
-                <p>Frame numbers, page table entries, TLB hit/miss.</p>
-              </div>
-            </div>
-            <div class="starter-card" data-prompt="Write a C program demonstrating fork() and explain parent vs child process PID execution.">
-              <div class="starter-icon">💻</div>
-              <div class="starter-info">
-                <h3>fork() System Call in C</h3>
-                <p>Process creation, return values, and memory copy semantics.</p>
-              </div>
-            </div>
+            <div class="starter-card" data-prompt="What is a deadlock and what are its four necessary conditions?"><div class="starter-icon">🔒</div><div class="starter-info"><h3>Deadlock Conditions</h3><p>Mutual exclusion, hold & wait, no preemption, circular wait.</p></div></div>
+            <div class="starter-card" data-prompt="Explain Round Robin scheduling algorithm with a simple example and average waiting time calculation."><div class="starter-icon">⏱️</div><div class="starter-info"><h3>Round Robin Scheduling</h3><p>Time quantum, ready queue, Gantt chart & turnaround time.</p></div></div>
+            <div class="starter-card" data-prompt="What is Virtual Memory? Explain Paging, Page Faults, and how TLB speeds up address translation."><div class="starter-icon">🧠</div><div class="starter-info"><h3>Paging & Virtual Memory</h3><p>Frame numbers, page table entries, TLB hit/miss.</p></div></div>
+            <div class="starter-card" data-prompt="Write a C program demonstrating fork() and explain parent vs child process PID execution."><div class="starter-icon">💻</div><div class="starter-info"><h3>fork() System Call in C</h3><p>Process creation, return values, and memory copy semantics.</p></div></div>
           </div>
         </div>
 
-        <!-- Single Chat Messages View -->
         <div class="messages-container" id="messagesContainer"></div>
 
-        <!-- Compare View (Side-by-side) -->
         <div class="compare-container hidden" id="compareContainer">
           <div class="compare-pane" id="panePlain">
-            <div class="pane-header">
-              <span class="pane-title">🤖 Plain Qwen (No Notes)</span>
-              <span class="pane-tag">General LLM Knowledge</span>
-            </div>
-            <div class="pane-content" id="comparePlainOutput">
-              <div class="pane-placeholder">Waiting for query...</div>
-            </div>
+            <div class="pane-header"><span class="pane-title">🤖 Plain Qwen (No Notes)</span><span class="pane-tag">General LLM Knowledge</span></div>
+            <div class="pane-content" id="comparePlainOutput"><div class="pane-placeholder">Waiting for query...</div></div>
           </div>
-
           <div class="compare-pane" id="paneRag">
-            <div class="pane-header">
-              <span class="pane-title">🎓 OSTutor RAG (With Notes)</span>
-              <span class="pane-tag">Grounded in Course PDFs</span>
-            </div>
-            <div class="pane-content" id="compareRagOutput">
-              <div class="pane-placeholder">Waiting for query...</div>
-            </div>
+            <div class="pane-header"><span class="pane-title">🎓 OSNOVA RAG (With Notes)</span><span class="pane-tag">Grounded in Course PDFs</span></div>
+            <div class="pane-content" id="compareRagOutput"><div class="pane-placeholder">Waiting for query...</div></div>
           </div>
         </div>
-
       </div>
 
-      <!-- Input Footer Area -->
       <footer class="chat-input-area">
         <form class="input-form" id="chatForm">
           <div class="input-box">
-            <textarea
-              id="messageInput"
-              class="message-textarea"
-              placeholder="Ask an OS question, e.g. 'Explain Peterson's algorithm' or 'Generate MCQs on paging'..."
-              rows="1"
-              autofocus
-            ></textarea>
-            
+            <textarea id="messageInput" class="message-textarea" placeholder="Ask an OS question, e.g. 'Explain Peterson's algorithm' or 'Generate MCQs on paging'..." rows="1" autofocus></textarea>
             <div class="input-actions">
-              <!-- Stop Button -->
               <button type="button" class="btn btn-danger hidden" id="stopBtn" title="Stop generating">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
-                <span>Stop</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg><span>Stop</span>
               </button>
-
-              <!-- Submit Button -->
               <button type="submit" class="btn btn-primary submit-btn" id="sendBtn" title="Send message (Enter)">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
               </button>
             </div>
           </div>
-          <div class="input-hint">
-            <span>Press <kbd>Enter</kbd> to send, <kbd>Shift + Enter</kbd> for new line. Active Mode: <strong id="hintModeText">Ask Tutor (RAG)</strong></span>
-          </div>
+          <div class="input-hint"><span>Press <kbd>Enter</kbd> to send, <kbd>Shift + Enter</kbd> for new line. Active Mode: <strong id="hintModeText">Ask Tutor (RAG)</strong></span></div>
         </form>
       </footer>
-
     </main>
   </div>
 
-  <!-- Notes & Ingestion Modal -->
   <div class="modal-backdrop hidden" id="notesModal">
     <div class="modal-dialog">
       <div class="modal-header">
-        <div class="modal-title-group">
-          <h3>📚 OS Notes & Vector Store</h3>
-          <p>ChromaDB collection populated from documents in <code>./data/</code></p>
-        </div>
+        <div class="modal-title-group"><h3>📚 OS Notes & Vector Store</h3><p>ChromaDB collection populated from documents in <code>./data/</code></p></div>
         <button class="btn btn-icon modal-close-btn" id="closeModalBtn">&times;</button>
       </div>
-      
       <div class="modal-body">
         <div class="stats-grid">
-          <div class="stat-card">
-            <span class="stat-number" id="modalChunkCount">0</span>
-            <span class="stat-label">Indexed Chunks</span>
-          </div>
-          <div class="stat-card">
-            <span class="stat-number" id="modalFileCount">0</span>
-            <span class="stat-label">Course Files Found</span>
-          </div>
+          <div class="stat-card"><span class="stat-number" id="modalChunkCount">0</span><span class="stat-label">Indexed Chunks</span></div>
+          <div class="stat-card"><span class="stat-number" id="modalFileCount">0</span><span class="stat-label">Course Files Found</span></div>
         </div>
-
-        <div class="modal-section">
-          <h4>Files in <code>./data/</code></h4>
-          <ul class="file-list" id="modalFileList">
-            <li class="empty-list">Loading files...</li>
-          </ul>
-        </div>
-
+        <div class="modal-section"><h4>Files in <code>./data/</code></h4><ul class="file-list" id="modalFileList"><li class="empty-list">Loading files...</li></ul></div>
         <div class="ingest-box">
-          <div class="ingest-info">
-            <strong>Need to add or update notes?</strong>
-            <p>Place your OS course PDFs, TXT, or Markdown files into the <code>data/</code> folder and click Re-Index.</p>
-          </div>
-          <button class="btn btn-accent" id="triggerIngestBtn">
-            <span id="ingestSpinner" class="spinner hidden"></span>
-            <span id="ingestBtnText">⚡ Re-Index Notes Now</span>
-          </button>
+          <div class="ingest-info"><strong>Need to add or update notes?</strong><p>Place your OS course PDFs, TXT, or Markdown files into the <code>data/</code> folder and click Re-Index.</p></div>
+          <button class="btn btn-accent" id="triggerIngestBtn"><span id="ingestSpinner" class="spinner hidden"></span><span id="ingestBtnText">⚡ Re-Index Notes Now</span></button>
         </div>
-
         <div class="ingest-result hidden" id="ingestResultBox"></div>
       </div>
     </div>
   </div>
 
-  <!-- App Script -->
+  <script src="bg.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

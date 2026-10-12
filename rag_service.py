@@ -2,8 +2,8 @@
 """
 OSTutorLLM - RAG pipeline using Gemini API + ChromaDB
 
-Setup:
-    python -m pip install chromadb sentence-transformers pypdf requests python-dotenv
+Web:
+    python app_server.py
 
 CLI:
     python rag_service.py ingest
@@ -12,15 +12,13 @@ CLI:
     python rag_service.py compare "Explain Round Robin"
     python rag_service.py mcq "process scheduling"
     python rag_service.py viva "deadlock"
-
-Web:
-    python app_server.py
 """
 
 import glob
 import json
 import os
 import sys
+import time
 from typing import Dict, Generator, Iterable, List, Optional, Tuple
 
 import chromadb
@@ -34,11 +32,7 @@ from pypdf import PdfReader
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
-MODEL = os.environ.get(
-    "GEMINI_MODEL",
-    "gemini-3.5-flash-lite"
-)
-
+MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite")
 API_KEY = os.environ.get("GEMINI_API_KEY")
 
 API_URL = (
@@ -58,7 +52,6 @@ SHOW_SOURCES = (
     os.environ.get("SHOW_SOURCES", "false").strip().lower() == "true"
 )
 
-
 SYSTEM_PROMPT = """
 You are OSTutor, an intelligent Operating Systems tutor.
 
@@ -73,6 +66,7 @@ Rules:
 6. Distinguish information from the notes and additional general knowledge when appropriate.
 7. Acknowledge uncertainty when necessary.
 8. Keep answers clear, accurate, and suitable for a university student.
+9. Answer the user's question directly and clearly. Never begin your response by stating that the notes do not mention the topic or that the provided context is irrelevant.
 """
 
 
@@ -87,15 +81,55 @@ _embedder = None
 
 
 def get_embedder():
-    """Load the embedding model only when first needed."""
+    """Load and reuse the embedding model."""
     global _embedder
 
     if _embedder is None:
         from sentence_transformers import SentenceTransformer
 
+        print(f"[OSTutor] Loading embedding model: {EMBED_MODEL}")
+        start = time.perf_counter()
+
         _embedder = SentenceTransformer(EMBED_MODEL)
 
+        print(
+            f"[OSTutor] Embedding model loaded in "
+            f"{time.perf_counter() - start:.2f}s"
+        )
+
     return _embedder
+
+
+def initialize():
+    """Warm up the embedding model before accepting requests."""
+    print("[OSTutor] Initializing RAG components...")
+    start = time.perf_counter()
+
+    embedder = get_embedder()
+
+    embedder.encode(
+        ["Operating Systems initialization"],
+        show_progress_bar=False,
+    )
+
+    print("[OSTutor] Embedding model warmed up.")
+
+    try:
+        collection = db.get_collection("os_notes")
+        print(
+            f"[OSTutor] ChromaDB ready: "
+            f"{collection.count()} chunks available."
+        )
+    except Exception:
+        print(
+            "[OSTutor] ChromaDB collection 'os_notes' "
+            "not found. Run ingestion if needed."
+        )
+
+    print(
+        f"[OSTutor] Initialization completed in "
+        f"{time.perf_counter() - start:.2f}s"
+    )
 
 
 # ---------- Text Processing ----------
@@ -121,7 +155,6 @@ def chunk_text(text: str) -> List[str]:
 
 def ingest() -> Dict:
     """Read PDF/TXT/MD files and rebuild the ChromaDB collection."""
-
     files = []
 
     for pattern in ("*.pdf", "*.txt", "*.md"):
@@ -178,10 +211,7 @@ def ingest() -> Dict:
         for page_no, page_text in pages:
             for chunk_no, chunk in enumerate(chunk_text(page_text)):
                 docs.append(chunk)
-                metadata.append({
-                    "source": name,
-                    "page": page_no,
-                })
+                metadata.append({"source": name, "page": page_no})
                 ids.append(f"{name}-p{page_no}-c{chunk_no}")
 
         if docs:
@@ -230,7 +260,6 @@ def retrieve(
     top_k: int = TOP_K,
 ) -> List[Tuple[str, Dict]]:
     """Retrieve relevant chunks from the notes."""
-
     try:
         collection = db.get_collection("os_notes")
         count = collection.count()
@@ -260,7 +289,6 @@ def retrieve(
 
 def format_context(hits: List[Tuple[str, Dict]]) -> str:
     """Format retrieved chunks for the model prompt."""
-
     if not hits:
         return "No specific course notes retrieved."
 
@@ -269,7 +297,6 @@ def format_context(hits: List[Tuple[str, Dict]]) -> str:
 
 def build_sources(hits: List[Tuple[str, Dict]]) -> List[Dict]:
     """Build optional source information for the web interface."""
-
     if not SHOW_SOURCES:
         return []
 
@@ -290,8 +317,7 @@ def build_sources(hits: List[Tuple[str, Dict]]) -> List[Dict]:
 def strip_think(
     tokens: Iterable[str],
 ) -> Generator[str, None, None]:
-    """Remove any explicit <think>...</think> blocks from generated text."""
-
+    """Remove explicit <think>...</think> blocks from generated text."""
     open_tag, close_tag = "<think>", "</think>"
     buffer = ""
     in_think = False
@@ -340,8 +366,7 @@ def _raw_stream(
     model: Optional[str] = None,
 ) -> Generator[str, None, None]:
     """Stream generated text from the Gemini API."""
-
-    chosen_model = MODEL
+    chosen_model = model or MODEL
 
     if not API_KEY:
         yield "Error: GEMINI_API_KEY is not configured."
@@ -359,7 +384,7 @@ def _raw_stream(
             {"role": "user", "content": user},
         ],
         "temperature": 0.3,
-        "max_tokens": 800,
+        "max_tokens": 4096,
         "stream": True,
     }
 
@@ -449,7 +474,6 @@ def stream_qwen(
     model: Optional[str] = None,
 ) -> Generator[str, None, None]:
     """Keep the original function name for compatibility."""
-
     started = False
 
     for piece in strip_think(_raw_stream(system, user, model)):
@@ -470,7 +494,6 @@ def ask_qwen(
     model: Optional[str] = None,
 ) -> str:
     """Print and return the generated answer."""
-
     full_answer = []
 
     for token in stream_qwen(system, user, model):
@@ -489,15 +512,12 @@ def get_available_models() -> List[str]:
 
 def get_status() -> Dict:
     """Return application status for the frontend."""
-
     files = []
 
     for extension in ("*.pdf", "*.txt", "*.md"):
         files.extend(
             os.path.basename(path)
-            for path in glob.glob(
-                os.path.join(DATA_DIR, extension)
-            )
+            for path in glob.glob(os.path.join(DATA_DIR, extension))
         )
 
     try:
@@ -521,7 +541,6 @@ def generate_rag(
     question: str,
     model: Optional[str] = None,
 ) -> Tuple[List[Dict], Generator[str, None, None]]:
-
     hits = retrieve(question)
     sources = build_sources(hits)
 
@@ -537,7 +556,6 @@ def generate_plain(
     question: str,
     model: Optional[str] = None,
 ) -> Tuple[List[Dict], Generator[str, None, None]]:
-
     system = (
         "You are a helpful Operating Systems tutor. "
         "Explain concepts clearly and concisely."
@@ -550,7 +568,6 @@ def generate_mcq(
     topic: str,
     model: Optional[str] = None,
 ) -> Tuple[List[Dict], Generator[str, None, None]]:
-
     hits = retrieve(topic)
     sources = build_sources(hits)
 
@@ -569,7 +586,6 @@ def generate_viva(
     topic: str,
     model: Optional[str] = None,
 ) -> Tuple[List[Dict], Generator[str, None, None]]:
-
     hits = retrieve(topic)
     sources = build_sources(hits)
 
@@ -609,7 +625,6 @@ def rag_answer(question: str):
 
 def plain_answer(question: str):
     print("\n--- ANSWER (plain Gemini, no notes) ---")
-
     ask_qwen(
         "You are a helpful Operating Systems tutor.",
         question,
