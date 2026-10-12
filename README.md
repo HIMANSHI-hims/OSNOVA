@@ -249,8 +249,8 @@ The project brings together semantic search, vector databases, document processi
 
 **YOUR NAME**
 
-- GitHub: [YOUR-USERNAME](https://github.com/YOUR-USERNAME)
-- LinkedIn: [Your LinkedIn Profile](YOUR-LINKEDIN-URL)
+- GitHub: [HIMANSHI-hims](https://github.com/HIMANSHI-hims)
+- LinkedIn: [HIMANSHI SRIVASTAVA](www.linkedin.com/in/himanshi-srivastava2006)
 
 ---
 
