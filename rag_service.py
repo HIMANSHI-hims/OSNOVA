@@ -1,6 +1,5 @@
-
 """
-OSTutorLLM - RAG pipeline using Gemini API + ChromaDB
+OSNOVA - Qwen3:4B for note-grounded study + Gemini for plain chat
 
 Web:
     python app_server.py
@@ -32,7 +31,12 @@ from pypdf import PdfReader
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
-MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite")
+# Qwen3:4B via Ollama handles note-grounded study modes.
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:4b")
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/chat")
+
+# Gemini configuration is retained as an optional helper; the app defaults to Qwen.
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite")
 API_KEY = os.environ.get("GEMINI_API_KEY")
 
 API_URL = (
@@ -53,22 +57,10 @@ SHOW_SOURCES = (
 )
 
 SYSTEM_PROMPT = """
-You are OSTutor, an intelligent Operating Systems tutor.
+You are OSNOVA, a direct, exam-focused Operating Systems tutor.
 
-Use the retrieved study notes as your primary source whenever they are relevant.
-
-Rules:
-1. If the notes contain relevant information, use them to form the answer.
-2. You may supplement the notes with general knowledge, examples, analogies, and additional context.
-3. If the notes only partially answer the question, explain what they cover and supplement missing details using general knowledge.
-4. If the notes are irrelevant or do not contain the answer, answer using your general knowledge instead of refusing.
-5. Never claim that information came from the notes unless it is supported by the retrieved context.
-6. Distinguish information from the notes and additional general knowledge when appropriate.
-7. Acknowledge uncertainty when necessary.
-8. Keep answers clear, accurate, and suitable for a university student.
-9. Answer the user's question directly and clearly. Never begin your response by stating that the notes do not mention the topic or that the provided context is irrelevant.
+GIVE THE SOURCES BEFORE DISPLAYING THE ANSWER.
 """
-
 
 # ---------- Initialization ----------
 
@@ -312,7 +304,7 @@ def build_sources(hits: List[Tuple[str, Dict]]) -> List[Dict]:
     ]
 
 
-# ---------- Gemini Streaming ----------
+# ---------- Model Streaming ----------
 
 def strip_think(
     tokens: Iterable[str],
@@ -329,26 +321,19 @@ def strip_think(
         while True:
             if in_think:
                 end = buffer.find(close_tag)
-
                 if end == -1:
                     buffer = buffer[-(len(close_tag) - 1):]
                     break
-
                 buffer = buffer[end + len(close_tag):]
                 in_think = False
-
             else:
                 start = buffer.find(open_tag)
-
                 if start == -1:
                     keep = len(open_tag) - 1
-
                     if len(buffer) > keep:
                         out += buffer[:-keep]
                         buffer = buffer[-keep:]
-
                     break
-
                 out += buffer[:start]
                 buffer = buffer[start + len(open_tag):]
                 in_think = True
@@ -360,13 +345,129 @@ def strip_think(
         yield buffer
 
 
-def _raw_stream(
+def _ollama_stream(
     system: str,
     user: str,
     model: Optional[str] = None,
 ) -> Generator[str, None, None]:
-    """Stream generated text from the Gemini API."""
-    chosen_model = model or MODEL
+    """Stream concise local Qwen output from Ollama."""
+
+    chosen_model = OLLAMA_MODEL
+    user_lower = user.lower()
+
+    if "multiple-choice questions" in user_lower:
+        max_tokens = 3800
+    elif "viva questions" in user_lower:
+        max_tokens = 2500
+    else:
+        max_tokens = 2000
+
+    payload = {
+        "model": chosen_model,
+        "messages": [
+    {
+        "role": "system",
+        "content": (
+            system
+            + "\n\nRESPONSE RULES:\n"
+            "Answer the user's actual question directly.\n"
+            "Start with the answer, not your approach or thought process.\n"
+            "Do not narrate reasoning, planning, or what you are going to do.\n"
+            "Use the supplied context when relevant.\n"
+            "If the context does not contain the answer, say so clearly.\n"
+            "Keep the answer concise, clear, and suitable for a student."
+        ),
+    },
+    {"role": "user", "content": user},
+],
+        "stream": True,
+        "think": False,
+        "options": {
+    "temperature": 0.1,
+    "num_predict": max_tokens,
+    "repeat_penalty": 1.1,
+},
+    }
+
+    try:
+        with requests.post(
+            OLLAMA_URL,
+            json=payload,
+            stream=True,
+            timeout=(10, 300),
+        ) as response:
+
+            if not response.ok:
+                details = response.text[:800]
+                print(
+                    f"Ollama request failed "
+                    f"(HTTP {response.status_code}): {details}"
+                )
+                yield (
+                    f"Local Qwen request failed "
+                    f"(HTTP {response.status_code}). "
+                    "Check that Ollama is running and the model is installed."
+                )
+                return
+
+            for line in response.iter_lines(decode_unicode=True):
+                if not line:
+                    continue
+
+                if isinstance(line, bytes):
+                    line = line.decode("utf-8")
+
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+                if event.get("error"):
+                    print(f"Ollama error: {event['error']}")
+                    yield f"Local Qwen error: {event['error']}"
+                    return
+
+                message = event.get("message") or {}
+                token = message.get("content")
+
+                if isinstance(token, str) and token:
+                    yield token
+
+                if event.get("done"):
+                    break
+
+    except requests.ConnectionError as exc:
+        print(f"Ollama connection error: {exc}")
+        yield (
+            "Cannot connect to Ollama. Start Ollama and make sure "
+            f"the model '{OLLAMA_MODEL}' is installed."
+        )
+
+    except requests.RequestException as exc:
+        print(f"Ollama request error: {exc}")
+        yield (
+            "Local Qwen request failed. "
+            "Check the Ollama service and backend logs."
+        )
+
+    except Exception as exc:
+        print(f"Unexpected Ollama error: {exc}")
+        yield "Unexpected local Qwen error. Check the backend logs."
+
+
+
+def _gemini_stream(
+    system: str,
+    user: str,
+    model: Optional[str] = None,
+) -> Generator[str, None, None]:
+    """Stream general-chat output from the existing Gemini API."""
+    # The frontend may still send its selected Qwen model for every mode.
+    # Never pass that value to Gemini; only accept an explicit Gemini model.
+    chosen_model = (
+        model if isinstance(model, str) and model.startswith("gemini")
+        else GEMINI_MODEL
+    )
 
     if not API_KEY:
         yield "Error: GEMINI_API_KEY is not configured."
@@ -376,7 +477,6 @@ def _raw_stream(
         "Authorization": f"Bearer {API_KEY}",
         "Content-Type": "application/json",
     }
-
     payload = {
         "model": chosen_model,
         "messages": [
@@ -384,7 +484,7 @@ def _raw_stream(
             {"role": "user", "content": user},
         ],
         "temperature": 0.3,
-        "max_tokens": 4096,
+        "max_tokens": 1024,
         "stream": True,
     }
 
@@ -396,16 +496,11 @@ def _raw_stream(
             stream=True,
             timeout=(15, 120),
         ) as response:
-
             if not response.ok:
                 details = response.text[:1000]
-                print(
-                    f"Gemini request failed "
-                    f"(HTTP {response.status_code}): {details}"
-                )
+                print(f"Gemini request failed (HTTP {response.status_code}): {details}")
                 yield (
-                    f"Gemini request failed "
-                    f"(HTTP {response.status_code}). "
+                    f"Gemini request failed (HTTP {response.status_code}). "
                     "Check the backend logs for details."
                 )
                 return
@@ -413,59 +508,38 @@ def _raw_stream(
             for line in response.iter_lines(decode_unicode=True):
                 if not line:
                     continue
-
                 if isinstance(line, bytes):
                     line = line.decode("utf-8")
-
                 if not line.startswith("data:"):
                     continue
-
                 data = line[5:].strip()
-
                 if data == "[DONE]":
                     break
-
                 try:
                     event = json.loads(data)
                 except json.JSONDecodeError:
                     continue
-
                 if event.get("error"):
                     print(f"Gemini API error: {event['error']}")
-                    yield (
-                        "Gemini API returned an error. "
-                        "Check backend logs."
-                    )
+                    yield "Gemini API returned an error. Check backend logs."
                     return
-
                 choices = event.get("choices", [])
-
                 if not choices:
                     continue
-
-                delta = choices[0].get("delta", {})
-                token = delta.get("content")
-
+                token = (choices[0].get("delta") or {}).get("content")
                 if isinstance(token, str) and token:
                     yield token
-
                 elif isinstance(token, list):
                     for part in token:
-                        if isinstance(part, dict):
-                            text = part.get("text")
-                            if text:
-                                yield text
+                        if isinstance(part, dict) and part.get("text"):
+                            yield part["text"]
 
     except requests.RequestException as exc:
         print(f"Gemini connection error: {exc}")
-        yield (
-            "Gemini connection error. "
-            "Check your network and API endpoint."
-        )
-
+        yield "Gemini connection error. Check your network and API endpoint."
     except Exception as exc:
-        print(f"Unexpected model error: {exc}")
-        yield "Unexpected model error. Check the backend logs."
+        print(f"Unexpected Gemini error: {exc}")
+        yield "Unexpected Gemini error. Check the backend logs."
 
 
 def stream_qwen(
@@ -473,18 +547,30 @@ def stream_qwen(
     user: str,
     model: Optional[str] = None,
 ) -> Generator[str, None, None]:
-    """Keep the original function name for compatibility."""
+    """Compatibility wrapper: study/RAG features use local Qwen via Ollama."""
     started = False
-
-    for piece in strip_think(_raw_stream(system, user, model)):
+    for piece in strip_think(_ollama_stream(system, user, model)):
         if not started:
             piece = piece.lstrip()
-
             if not piece:
                 continue
-
             started = True
+        yield piece
 
+
+def stream_gemini(
+    system: str,
+    user: str,
+    model: Optional[str] = None,
+) -> Generator[str, None, None]:
+    """Stream general AI chat through Gemini, keeping its API unchanged."""
+    started = False
+    for piece in strip_think(_gemini_stream(system, user, model)):
+        if not started:
+            piece = piece.lstrip()
+            if not piece:
+                continue
+            started = True
         yield piece
 
 
@@ -493,13 +579,25 @@ def ask_qwen(
     user: str,
     model: Optional[str] = None,
 ) -> str:
-    """Print and return the generated answer."""
+    """Print and return a local Qwen answer (kept for CLI compatibility)."""
     full_answer = []
-
     for token in stream_qwen(system, user, model):
         print(token, end="", flush=True)
         full_answer.append(token)
+    print()
+    return "".join(full_answer)
 
+
+def ask_gemini(
+    system: str,
+    user: str,
+    model: Optional[str] = None,
+) -> str:
+    """Print and return a Gemini answer."""
+    full_answer = []
+    for token in stream_gemini(system, user, model):
+        print(token, end="", flush=True)
+        full_answer.append(token)
     print()
     return "".join(full_answer)
 
@@ -507,7 +605,8 @@ def ask_qwen(
 # ---------- Status for Web App ----------
 
 def get_available_models() -> List[str]:
-    return [MODEL]
+    """List the configured local and API models used by OSNOVA."""
+    return [OLLAMA_MODEL, GEMINI_MODEL]
 
 
 def get_status() -> Dict:
@@ -527,8 +626,16 @@ def get_status() -> Dict:
 
     return {
         "status": "ready",
-        "model": MODEL,
+        "model": f"{OLLAMA_MODEL} (RAG/MCQ/Viva) + {GEMINI_MODEL} (Plain Chat)",
         "available_models": get_available_models(),
+        "primary_model": OLLAMA_MODEL,
+        "mode_models": {
+            "rag": OLLAMA_MODEL,
+            "mcq": OLLAMA_MODEL,
+            "viva": OLLAMA_MODEL,
+            "plain": GEMINI_MODEL,
+            "compare": f"{OLLAMA_MODEL} + {GEMINI_MODEL}",
+        },
         "data_files": files,
         "total_chunks": chunk_count,
         "data_dir": DATA_DIR,
@@ -543,11 +650,13 @@ def generate_rag(
 ) -> Tuple[List[Dict], Generator[str, None, None]]:
     hits = retrieve(question)
     sources = build_sources(hits)
-
     prompt = (
-        f"Context:\n{format_context(hits)}\n\n"
-        f"Question: {question}"
-    )
+    "Answer the question using the context below.\n"
+    "or repeat the question or context.\n\n"
+    f"<context>\n{format_context(hits)}\n</context>\n\n"
+    f"<question>\n{question}\n</question>\n\n"
+    "Answer:"
+)
 
     return sources, stream_qwen(SYSTEM_PROMPT, prompt, model)
 
@@ -556,12 +665,25 @@ def generate_plain(
     question: str,
     model: Optional[str] = None,
 ) -> Tuple[List[Dict], Generator[str, None, None]]:
-    system = (
-        "You are a helpful Operating Systems tutor. "
-        "Explain concepts clearly and concisely."
-    )
+    """Answer general questions with Gemini, without retrieving notes."""
 
-    return [], stream_qwen(system, question, model)
+    system = """
+You are OSNOVA, a direct, exam-focused tutor.
+
+Return ONLY the final answer.
+Start immediately with the answer itself.
+Never show reasoning, planning, analysis, or internal monologue.
+Never describe the question or explain what you are doing.
+Never use phrases like "Let's craft the answer",
+"The user is asking", "From the context", or "We need to answer".
+No preamble, casual talk, filler, or closing remarks.
+For definitions, use 1-2 sentences.
+For simple factual questions, use at most 3 sentences.
+Use simple, clear, exam-friendly language.
+For code requests, provide the code directly.
+"""
+
+    return [], stream_gemini(system, question, model)
 
 
 def generate_mcq(
@@ -571,13 +693,7 @@ def generate_mcq(
     hits = retrieve(topic)
     sources = build_sources(hits)
 
-    prompt = (
-        f"Context:\n{format_context(hits)}\n\n"
-        f"Create 5 multiple-choice questions on '{topic}' "
-        "using ONLY the context. Give 4 options (A-D) for each, "
-        "then list the correct answers with a one-line explanation "
-        "at the end. Use clear Markdown headings."
-    )
+    prompt = f"Question: {question}"
 
     return sources, stream_qwen(SYSTEM_PROMPT, prompt, model)
 
@@ -624,11 +740,8 @@ def rag_answer(question: str):
 
 
 def plain_answer(question: str):
-    print("\n--- ANSWER (plain Gemini, no notes) ---")
-    ask_qwen(
-        "You are a helpful Operating Systems tutor.",
-        question,
-    )
+    print("\\n--- ANSWER (local Qwen, no notes) ---")
+    ask_qwen(SYSTEM_PROMPT, question)
 
 
 def cli_mcq(topic: str):
